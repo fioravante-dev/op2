@@ -1,0 +1,13 @@
+{
+  "name": "op2",
+  "version": "0.1.0",
+  "description": "Aplica runas, feitiços e itens do OP.gg automaticamente no cliente do LoL",
+  "main": "src/index.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

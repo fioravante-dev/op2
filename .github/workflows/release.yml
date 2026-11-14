@@ -1,0 +1,42 @@
+# Ao enviar uma tag "vX.Y.Z", compila o op2.exe no Windows e publica na página de Releases.
+# O app instalado procura essa release e se atualiza sozinho.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Conferir versão (tag x Cargo.toml)
+        shell: bash
+        run: |
+          v=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          if [ "v$v" != "$GITHUB_REF_NAME" ]; then
+            echo "A tag $GITHUB_REF_NAME não bate com a versão do Cargo.toml (v$v)"; exit 1
+          fi
+
+      - name: Testes
+        run: cargo test --release
+
+      - name: Compilar
+        run: cargo build --release
+
+      - name: Publicar release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" target/release/op2.exe \
+            --title "OP2 $GITHUB_REF_NAME" --generate-notes
