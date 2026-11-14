@@ -10,7 +10,7 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 /// Repositório no GitHub ("dono/nome"). Enquanto for "OWNER/...", a atualização fica desligada.
-pub const REPO: &str = "OWNER/op2";
+pub const REPO: &str = "fioravante-dev/op2";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
