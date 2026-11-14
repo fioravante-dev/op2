@@ -124,12 +124,17 @@ impl Tracker {
         }
         self.last_key = Some(key);
 
-        // espera um pouco: evita aplicar várias vezes se o jogador troca rápido de campeão
+        // espera um pouco: evita aplicar várias vezes se o jogador troca rápido de campeão.
+        // Na reta final da seleção (troca de última hora no ARAM) aplica na hora.
+        let timer = &s["timer"];
+        let ending = timer["phase"] == "FINALIZATION"
+            && timer["adjustedTimeLeftInPhase"].as_f64().is_some_and(|ms| ms < 10_000.0);
+        let delay = if ending { 0 } else { 800 };
         let my_gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let generation = self.generation.clone();
         let ctx = ctx.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(800)).await;
+            tokio::time::sleep(Duration::from_millis(delay)).await;
             if generation.load(Ordering::SeqCst) != my_gen {
                 return;
             }

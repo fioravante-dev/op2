@@ -25,28 +25,38 @@ pub async fn apply_runes(lcu: &Lcu, b: &Build) -> Result<String> {
     perks.extend(ids(&r["secondary_rune_ids"]));
     perks.extend(ids(&r["stat_mod_ids"]));
 
+    let mut page = json!({
+        "name": title(b),
+        "primaryStyleId": r["primary_page_id"],
+        "subStyleId": r["secondary_page_id"],
+        "selectedPerkIds": perks,
+        "current": true,
+    });
+
+    // Edita a página OP2 existente no lugar. Apagar e recriar deixava um instante
+    // em que o cliente ativava outra página, e o jogo podia começar com ela.
     let pages = lcu.get("/lol-perks/v1/pages").await?;
-    for p in pages.as_array().into_iter().flatten() {
-        let ours = p["name"].as_str().is_some_and(|n| n.starts_with(PREFIX));
-        if ours && p["isDeletable"].as_bool() == Some(true) {
-            lcu.delete(&format!("/lol-perks/v1/pages/{}", p["id"])).await?;
+    let ours: Vec<&Value> = pages
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|p| p["name"].as_str().is_some_and(|n| n.starts_with(PREFIX)) && p["isDeletable"].as_bool() == Some(true))
+        .collect();
+
+    if let Some(existing) = ours.first() {
+        let id = existing["id"].clone();        page["id"] = id.clone();
+        lcu.put(&format!("/lol-perks/v1/pages/{id}"), &page).await?;
+        lcu.put("/lol-perks/v1/currentpage", &id).await?;
+        for extra in &ours[1..] {
+            let _ = lcu.delete(&format!("/lol-perks/v1/pages/{}", extra["id"])).await;
         }
+    } else {
+        let inv = lcu.get("/lol-perks/v1/inventory").await?;
+        if inv["canAddCustomPage"].as_bool() == Some(false) {
+            return Ok("sem espaço para nova página de runas (apague uma no cliente)".into());
+        }
+        lcu.post("/lol-perks/v1/pages", &page).await?;
     }
-    let inv = lcu.get("/lol-perks/v1/inventory").await?;
-    if inv["canAddCustomPage"].as_bool() == Some(false) {
-        return Ok("sem espaço para nova página de runas (apague uma no cliente)".into());
-    }
-    lcu.post(
-        "/lol-perks/v1/pages",
-        &json!({
-            "name": title(b),
-            "primaryStyleId": r["primary_page_id"],
-            "subStyleId": r["secondary_page_id"],
-            "selectedPerkIds": perks,
-            "current": true,
-        }),
-    )
-    .await?;
     Ok("ok".into())
 }
 

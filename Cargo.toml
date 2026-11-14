@@ -1,9 +1,9 @@
-[package]
+﻿[package]
 name = "op2"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 license = "MIT"
-description = "Aplica runas, feitiços e itens do OP.gg automaticamente no cliente do LoL"
+description = "Aplica runas, feitiÃ§os e itens do OP.gg automaticamente no cliente do LoL"
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net"] }
