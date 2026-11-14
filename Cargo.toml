@@ -1,6 +1,6 @@
 [package]
 name = "op2"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Aplica runas, feitiços e itens do OP.gg automaticamente no cliente do LoL"
 

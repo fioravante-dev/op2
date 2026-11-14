@@ -248,7 +248,7 @@ async fn reapply(ctx: &Ctx, tracker: &mut Tracker, position: Option<String>) {
 }
 
 pub async fn run(cfg: Arc<Mutex<Config>>, notify: Notify, mut cmds: UnboundedReceiver<Cmd>) {
-    log("OP2 iniciado. Aguardando o cliente do LoL...");
+    log(&format!("OP2 v{} iniciado. Aguardando o cliente do LoL...", crate::update::VERSION));
     let opgg = Arc::new(OpGg::new());
     {
         let o = opgg.clone();
