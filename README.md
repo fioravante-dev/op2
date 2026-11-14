@@ -68,7 +68,8 @@ você escolhe um campeão; até lá ele só espera.
 
 ## O que ele faz
 
-- ✅ **Runas**: cria uma página "OP2 Campeão Rota" e deixa ativa (suas outras páginas não são tocadas)
+- ✅ **Runas**: cria uma página "OP2 Campeão Rota" e deixa ativa. Apaga páginas que o OP.GG ou o Blitz deixaram
+  (começam com "OP.GG" ou "Blitz"); suas páginas próprias não são tocadas
 - ✅ **Feitiços**: aplica os mais usados, **mantendo o Flash na tecla que você já usa** (D ou F)
 - ✅ **Itens**: set na loja com iniciais, botas, core e opções de 4º/5º/6º item, com a ordem de skills no título
 - ✅ **Detecta rota e modo**: ranked solo/flex, normal, ARAM, ARAM: Caos, URF

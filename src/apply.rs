@@ -57,6 +57,28 @@ pub async fn apply_runes(lcu: &Lcu, b: &Build) -> Result<String> {
         }
         lcu.post("/lol-perks/v1/pages", &page).await?;
     }
+
+    // Páginas deixadas por outros apps (OP.GG, Blitz) atrapalham e podem ficar por cima da nossa.
+    let mut removed = 0;
+    for p in pages.as_array().into_iter().flatten() {
+        let other_app = p["name"].as_str().is_some_and(|n| {
+            let n = n.to_uppercase();
+            n.starts_with("OP.GG") || n.starts_with("BLITZ")
+        });
+        if other_app && p["isDeletable"].as_bool() == Some(true) {
+            if lcu.delete(&format!("/lol-perks/v1/pages/{}", p["id"])).await.is_ok() {
+                removed += 1;
+            }
+        }
+    }
+    if removed > 0 {
+        // garante que a nossa continua ativa depois de apagar as outras
+        let pages = lcu.get("/lol-perks/v1/pages").await?;
+        if let Some(id) = pages.as_array().into_iter().flatten().find(|p| p["name"] == page["name"]).map(|p| p["id"].clone()) {
+            lcu.put("/lol-perks/v1/currentpage", &id).await?;
+        }
+        return Ok(format!("ok ({removed} página(s) do OP.GG/Blitz removida(s))"));
+    }
     Ok("ok".into())
 }
 
