@@ -12,6 +12,7 @@ Sem propaganda, sem janela, sem pesar o PC: só um ícone na bandeja.
 [![Downloads](https://img.shields.io/github/downloads/fioravante-dev/op2/total?label=downloads&color=0f1a2b)](https://github.com/fioravante-dev/op2/releases)
 ![Windows](https://img.shields.io/badge/plataforma-Windows-0078d4)
 ![Rust](https://img.shields.io/badge/feito%20em-Rust-dea584)
+[![Licença MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-blue)](LICENSE)
 
 ### [⬇️ Baixar o OP2 (op2.exe)](https://github.com/fioravante-dev/op2/releases/latest/download/op2.exe)
 
@@ -171,6 +172,10 @@ A pasta [`js/`](js/) tem o protótipo original em Node.js, mantido como referên
 2. `git tag v0.2.0` e `git push origin main --tags`
 3. O [GitHub Actions](.github/workflows/release.yml) roda os testes, compila e publica
    o `op2.exe`. Todos os OP2 instalados se atualizam na próxima vez que abrirem.
+
+## Licença
+
+[MIT](LICENSE): pode usar, modificar e distribuir à vontade, desde que mantenha o aviso de copyright.
 
 ---
 
