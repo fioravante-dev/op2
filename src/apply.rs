@@ -12,6 +12,12 @@ fn ids(v: &Value) -> Vec<i64> {
     v.as_array().map(|a| a.iter().filter_map(Value::as_i64).collect()).unwrap_or_default()
 }
 
+/// Páginas de runas e sets de itens deixados pelo OP.GG ou pelo Blitz.
+fn from_other_app(name: &str) -> bool {
+    let n = name.to_uppercase();
+    n.starts_with("OP.GG") || n.starts_with("BLITZ")
+}
+
 fn title(b: &Build) -> String {
     format!("{PREFIX} {} {}", b.champ.name, b.label())
 }
@@ -61,11 +67,7 @@ pub async fn apply_runes(lcu: &Lcu, b: &Build) -> Result<String> {
     // Páginas deixadas por outros apps (OP.GG, Blitz) atrapalham e podem ficar por cima da nossa.
     let mut removed = 0;
     for p in pages.as_array().into_iter().flatten() {
-        let other_app = p["name"].as_str().is_some_and(|n| {
-            let n = n.to_uppercase();
-            n.starts_with("OP.GG") || n.starts_with("BLITZ")
-        });
-        if other_app && p["isDeletable"].as_bool() == Some(true) {
+        if p["name"].as_str().is_some_and(from_other_app) && p["isDeletable"].as_bool() == Some(true) {
             if lcu.delete(&format!("/lol-perks/v1/pages/{}", p["id"])).await.is_ok() {
                 removed += 1;
             }
@@ -197,7 +199,7 @@ pub async fn apply_items(lcu: &Lcu, b: &Build, summoner_id: i64) -> Result<Strin
         .filter(|s| {
             let ours = s["title"].as_str().is_some_and(|t| t.starts_with(PREFIX));
             let same_champ = s["associatedChampions"].as_array().is_some_and(|a| a.iter().any(|c| c.as_i64() == Some(champ_id)));
-            !(ours && same_champ)
+            !(ours && same_champ) && !s["title"].as_str().is_some_and(from_other_app)
         })
         .cloned()
         .collect();

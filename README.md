@@ -68,10 +68,15 @@ você escolhe um campeão; até lá ele só espera.
 
 ## O que ele faz
 
-- ✅ **Runas**: cria uma página "OP2 Campeão Rota" e deixa ativa. Apaga páginas que o OP.GG ou o Blitz deixaram
-  (começam com "OP.GG" ou "Blitz"); suas páginas próprias não são tocadas
+- ✅ **Runas**: cria uma página "OP2 Campeão Rota" e deixa ativa. Apaga páginas de runas e sets de itens que o
+  OP.GG ou o Blitz deixaram (começam com "OP.GG" ou "Blitz"); suas páginas próprias não são tocadas
 - ✅ **Feitiços**: aplica os mais usados, **mantendo o Flash na tecla que você já usa** (D ou F)
 - ✅ **Itens**: set na loja com iniciais, botas, core e opções de 4º/5º/6º item, com a ordem de skills no título
+- ✅ **Cartão na seleção de campeão**: antes de você escolher, mostra os **counters do inimigo da sua rota**
+  (clique para marcar o campeão); depois de escolher, mostra **você vs inimigo**: quem tem vantagem na lane,
+  4 páginas de runas para o matchup (clique para trocar) e uma dica contra ele. No ARAM: Caos, mostra as
+  melhorias mais escolhidas. Some sozinho quando a partida começa
+- ✅ **Build do matchup**: com o inimigo da rota conhecido (escolha alternada), runas, feitiços e itens são os daquele confronto
 - ✅ **Detecta rota e modo**: ranked solo/flex, normal, ARAM, ARAM: Caos, URF
 - ✅ **Patch novo?** Limpa os sets de itens antigos automaticamente
 - ✅ **Trocou de campeão?** Aplica a build do novo na hora
@@ -93,6 +98,7 @@ Clique com o botão direito no ícone **O** perto do relógio
  ✔ Feitiços
  ✔ Itens
  Flash                      ▸  Manter onde está / Sempre no D / Sempre no F
+ ✔ Cartão com counters e builds
  ───────────────────────────────
  Verificar atualizações
  Abrir log
@@ -152,6 +158,8 @@ Requer [Rust](https://rustup.rs) e Windows.
 cargo build                                    # debug (com console)
 cargo test                                     # testes
 .\target\debug\op2.exe teste Ahri mid          # aplica runas+itens agora, sem champ select
+.\target\debug\op2.exe teste Ahri mid Zed      # idem, com a build do matchup
+.\target\debug\op2.exe cartao Ahri mid Zed     # só mostra o cartão (não aplica nada)
 powershell -ExecutionPolicy Bypass -File install.ps1   # compila e instala a versão local
 ```
 
@@ -162,6 +170,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1   # compila e instala a ver
 | [`src/lcu.rs`](src/lcu.rs) | Conexão com a API local do cliente (REST + WebSocket) |
 | [`src/opgg.rs`](src/opgg.rs) | Busca as builds no OP.gg |
 | [`src/apply.rs`](src/apply.rs) | Aplica runas, feitiços e sets de itens |
+| [`src/card.rs`](src/card.rs) | Cartão da seleção de campeão (janela nativa do Windows) |
 | [`src/update.rs`](src/update.rs) | Auto-instalação e atualização pelas Releases |
 | [`build.rs`](build.rs) | Desenha o ícone e embute no `.exe` |
 

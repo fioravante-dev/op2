@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod apply;
+mod card;
 mod lcu;
 mod opgg;
 mod update;
@@ -47,11 +48,21 @@ fn make_icon(connected: bool) -> Icon {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    if args.get(1).map(String::as_str) == Some("teste") {
+    // `op2 teste <campeão> [rota] [inimigo]` aplica agora; `op2 cartao ...` também mostra o cartão
+    let cmd = args.get(1).map(String::as_str);
+    if cmd == Some("teste") || cmd == Some("cartao") {
         let champ = args.get(2).cloned().unwrap_or_else(|| "Ahri".into());
         let rt = tokio::runtime::Runtime::new().expect("runtime");
-        if let Err(e) = rt.block_on(watcher::test_mode(champ, args.get(3).cloned())) {
-            log(&format!("Erro: {e}"));
+        match rt.block_on(watcher::test_mode(champ, args.get(3).cloned(), args.get(4).cloned(), cmd == Some("teste"))) {
+            Ok(views) if cmd == Some("cartao") => {
+                card::start(|_| {});
+                for v in views {
+                    card::show(v);
+                    std::thread::sleep(std::time::Duration::from_secs(6));
+                }
+            }
+            Ok(_) => {}
+            Err(e) => log(&format!("Erro: {e}")),
         }
         return;
     }
@@ -92,6 +103,15 @@ fn main() {
     let (cmd_tx, cmd_rx) = unbounded_channel::<Cmd>();
     let (update_tx, update_rx) = unbounded_channel::<()>();
     {
+        let tx = cmd_tx.clone();
+        card::start(move |a| {
+            let _ = tx.send(match a {
+                card::Action::Hover(id) => Cmd::Hover(id),
+                card::Action::Runes(i) => Cmd::Runes(i),
+            });
+        });
+    }
+    {
         let cfg = cfg.clone();
         let s = send.clone();
         std::thread::spawn(move || {
@@ -119,6 +139,7 @@ fn main() {
     let runes = CheckMenuItem::new("Runas", true, c.runes, None);
     let spells = CheckMenuItem::new("Feitiços", true, c.spells, None);
     let items = CheckMenuItem::new("Itens", true, c.items, None);
+    let card_item = CheckMenuItem::new("Cartão com counters e builds", true, c.card, None);
     let flash_auto = CheckMenuItem::new("Manter onde está", true, c.flash_key == "auto", None);
     let flash_d = CheckMenuItem::new("Sempre no D", true, c.flash_key == "D", None);
     let flash_f = CheckMenuItem::new("Sempre no F", true, c.flash_key == "F", None);
@@ -138,6 +159,7 @@ fn main() {
         &spells,
         &items,
         &flash,
+        &card_item,
         &PredefinedMenuItem::separator(),
         &update_item,
         &open_log,
@@ -209,6 +231,11 @@ fn main() {
                     c.spells = spells.is_checked();
                 } else if id == items.id() {
                     c.items = items.is_checked();
+                } else if id == card_item.id() {
+                    c.card = card_item.is_checked();
+                    if !c.card {
+                        card::hide();
+                    }
                 } else if id == flash_auto.id() || id == flash_d.id() || id == flash_f.id() {
                     c.flash_key = if id == flash_d.id() {
                         "D"

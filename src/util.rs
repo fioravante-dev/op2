@@ -38,11 +38,13 @@ pub struct Config {
     /// Último patch do LoL visto (ex: "16.22"); quando muda, limpa os sets antigos.
     #[serde(rename = "lastPatch")]
     pub last_patch: String,
+    /// Cartão com counters/builds na seleção de campeão
+    pub card: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { runes: true, spells: true, items: true, flash_key: "auto".into(), last_patch: String::new() }
+        Self { runes: true, spells: true, items: true, flash_key: "auto".into(), last_patch: String::new(), card: true }
     }
 }
 

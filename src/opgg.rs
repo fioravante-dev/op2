@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 const MCP_URL: &str = "https://mcp-api.op.gg/mcp";
 
 const BUILD_FIELDS: &[&str] = &[
-    "data.runes.{primary_page_id,primary_rune_ids[],secondary_page_id,secondary_rune_ids[],stat_mod_ids[],pick_rate,win,play}",
+    "data.runes.{primary_page_id,primary_rune_ids[],primary_rune_names[],secondary_page_id,secondary_page_name,secondary_rune_ids[],stat_mod_ids[],pick_rate,win,play}",
     "data.summoner_spells.{ids[],pick_rate,win,play}",
     "data.starter_items.{ids[],pick_rate,win,play}",
     "data.boots.{ids[],pick_rate,win,play}",
@@ -59,13 +59,14 @@ type ChampMap = Arc<HashMap<i64, Champ>>;
 pub struct OpGg {
     http: reqwest::Client,
     champs: Mutex<Option<ChampMap>>,
+    positions: Mutex<HashMap<i64, String>>,
     rpc_id: AtomicU64,
 }
 
 impl OpGg {
     pub fn new() -> Self {
         let http = reqwest::Client::builder().timeout(Duration::from_secs(20)).build().expect("http client");
-        Self { http, champs: Mutex::new(None), rpc_id: AtomicU64::new(1) }
+        Self { http, champs: Mutex::new(None), positions: Mutex::new(HashMap::new()), rpc_id: AtomicU64::new(1) }
     }
 
     /// Esquece a lista de campeões (novo patch / campeão novo); recarrega na próxima consulta.
@@ -103,6 +104,10 @@ impl OpGg {
         if j["result"]["isError"].as_bool() == Some(true) {
             return Err(anyhow!("OP.gg: {out}"));
         }
+        // a maioria das ferramentas responde no formato compacto; algumas em JSON
+        if out.trim_start().starts_with('{') {
+            return Ok(serde_json::from_str(out)?);
+        }
         parse_compact(out)
     }
 
@@ -131,7 +136,7 @@ impl OpGg {
         Ok(map)
     }
 
-    async fn champion(&self, id: i64) -> Result<Champ> {
+    pub async fn champion(&self, id: i64) -> Result<Champ> {
         if let Some(c) = self.champions().await?.get(&id) {
             return Ok(c.clone());
         }
@@ -165,13 +170,19 @@ impl OpGg {
         Err(last)
     }
 
-    /// Rota principal do campeão (quando o cliente não informa, ex: normal blind)
+    /// Rota principal do campeão (quando o cliente não informa, ex: normal blind;
+    /// e para descobrir quem é o inimigo da sua rota). Fica em cache.
     async fn main_position(&self, champ: &Champ) -> Result<String> {
+        if let Some(p) = self.positions.lock().await.get(&champ.id) {
+            return Ok(p.clone());
+        }
         // O OP.gg às vezes responde sem o "summary"; tenta de novo algumas vezes.
         for attempt in 0..3 {
             let d = self.analysis(champ, "ranked", "mid", &["data.summary.positions[].name"]).await?;
             if let Some(name) = d["summary"]["positions"][0]["name"].as_str() {
-                return Ok(name.to_lowercase());
+                let p = name.to_lowercase();
+                self.positions.lock().await.insert(champ.id, p.clone());
+                return Ok(p);
             }
             tokio::time::sleep(Duration::from_millis(300 * (attempt + 1))).await;
         }
@@ -198,6 +209,114 @@ impl OpGg {
         }
         Ok(Build { champ, position, game_mode: mode.into(), data })
     }
+}
+
+impl OpGg {
+    /// Entre os campeões inimigos já escolhidos, o que joga na sua rota.
+    pub async fn lane_opponent(&self, enemies: &[i64], position: &str) -> Option<Champ> {
+        for &id in enemies {
+            let Ok(c) = self.champion(id).await else { continue };
+            if self.main_position(&c).await.ok().as_deref() == Some(position) {
+                return Some(c);
+            }
+        }
+        None
+    }
+
+    /// Campeões que ganham do `enemy` na rota (os "weak_counters" dele no OP.gg).
+    pub async fn counters(&self, enemy: &Champ, position: &str) -> Result<Vec<Counter>> {
+        let fields = ["data.weak_counters[].{champion_id,champion_name,counter_win_rate,play}"];
+        for attempt in 0..3 {
+            let d = self.analysis(enemy, "ranked", position, &fields).await?;
+            if let Some(list) = d["weak_counters"].as_array() {
+                let mut out = Vec::new();
+                for c in list {
+                    let Some(id) = c["champion_id"].as_i64() else { continue };
+                    let name = match self.champion(id).await {
+                        Ok(ch) => ch.name,
+                        Err(_) => c["champion_name"].as_str().unwrap_or("?").to_string(),
+                    };
+                    out.push(Counter { id, name, win_rate: c["counter_win_rate"].as_f64().unwrap_or(0.0) });
+                }
+                return Ok(out);
+            }
+            tokio::time::sleep(Duration::from_millis(300 * (attempt + 1))).await;
+        }
+        Err(anyhow!("OP.gg não informou counters"))
+    }
+
+    /// Guia de matchup do OP.gg: várias páginas de runas, itens e dica contra o inimigo.
+    pub async fn matchup(&self, my: &Champ, opponent: &Champ, position: &str) -> Result<Value> {
+        let mut last = anyhow!("sem dados de matchup");
+        for attempt in 0..3 {
+            for (me, opp) in opgg_names(my).into_iter().zip(opgg_names(opponent).into_iter().cycle()) {
+                let args = json!({
+                    "lang": "pt_BR", "position": position, "my_champion": me, "opponent_champion": opp,
+                });
+                match self.call_tool("lol_get_lane_matchup_guide", args).await {
+                    Ok(r) if r["data"]["runes"].as_array().is_some_and(|a| !a.is_empty()) => return Ok(r),
+                    Ok(_) => last = anyhow!("OP.gg respondeu sem runas"),
+                    Err(e) => last = e,
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(300 * (attempt + 1))).await;
+        }
+        Err(last)
+    }
+
+    /// Melhorias mais escolhidas do ARAM: Caos para o campeão.
+    pub async fn aram_augments(&self, champ: &Champ) -> Result<Vec<(String, f64)>> {
+        let r = self
+            .call_tool(
+                "lol_list_aram_augments",
+                json!({ "champion_id": champ.id, "lang": "pt_BR", "desired_output_fields": ["data.augments[].{name,popular}"] }),
+            )
+            .await?;
+        Ok(r["data"]["augments"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|a| Some((a["name"].as_str()?.to_string(), a["popular"].as_f64().unwrap_or(0.0))))
+            .take(6)
+            .collect())
+    }
+}
+
+pub struct Counter {
+    pub id: i64,
+    pub name: String,
+    pub win_rate: f64,
+}
+
+/// Transforma o guia de matchup (listas de opções) numa Build, usando a página de runas `rune_idx`.
+pub fn matchup_build(mu: &Value, champ: Champ, position: &str, rune_idx: usize) -> Build {
+    let d = &mu["data"];
+    let first = |k: &str| d[k][0].clone();
+    let core = ids_of(&d["core_items"][0]["ids"]);
+    let extra: Vec<Value> = d["last_items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|o| ids_of(&o["ids"]).iter().all(|i| !core.contains(i)))
+        .take(4)
+        .cloned()
+        .collect();
+    let data = json!({
+        "runes": d["runes"][rune_idx].clone(),
+        "summoner_spells": first("summoner_spells"),
+        "starter_items": first("starter_items"),
+        "boots": first("boots"),
+        "core_items": first("core_items"),
+        "fourth_items": extra,
+        "skills": first("skills"),
+        "skill_masteries": first("skill_masteries"),
+        "summary": d["summary"].clone(),
+    });
+    Build { champ, position: position.into(), game_mode: "ranked".into(), data }
+}
+
+fn ids_of(v: &Value) -> Vec<i64> {
+    v.as_array().map(|a| a.iter().filter_map(Value::as_i64).collect()).unwrap_or_default()
 }
 
 /// "TwistedFate" -> "TWISTED_FATE"; também tenta pelo nome ("K'Sante" -> "KSANTE")
