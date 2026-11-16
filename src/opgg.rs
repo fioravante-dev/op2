@@ -18,6 +18,7 @@ const BUILD_FIELDS: &[&str] = &[
     "data.fourth_items[].{ids[],pick_rate}",
     "data.fifth_items[].{ids[],pick_rate}",
     "data.sixth_items[].{ids[],pick_rate}",
+    "data.last_items[].{ids[],pick_rate}",
     "data.skills.{order[]}",
     "data.skill_masteries.{ids[]}",
     "data.summary.average_stats.{win_rate,tier}",
@@ -293,22 +294,18 @@ pub struct Counter {
 pub fn matchup_build(mu: &Value, champ: Champ, position: &str, rune_idx: usize) -> Build {
     let d = &mu["data"];
     let first = |k: &str| d[k][0].clone();
-    let core = ids_of(&d["core_items"][0]["ids"]);
-    let extra: Vec<Value> = d["last_items"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|o| ids_of(&o["ids"]).iter().all(|i| !core.contains(i)))
-        .take(4)
-        .cloned()
-        .collect();
+    let rest = |k: &str, n: usize| -> Vec<Value> {
+        d[k].as_array().into_iter().flatten().skip(1).take(n).cloned().collect()
+    };
     let data = json!({
         "runes": d["runes"][rune_idx].clone(),
         "summoner_spells": first("summoner_spells"),
         "starter_items": first("starter_items"),
         "boots": first("boots"),
+        "boots_alts": rest("boots", 4),
         "core_items": first("core_items"),
-        "fourth_items": extra,
+        "core_alts": rest("core_items", 2),
+        "last_items": d["last_items"].clone(),
         "skills": first("skills"),
         "skill_masteries": first("skill_masteries"),
         "summary": d["summary"].clone(),

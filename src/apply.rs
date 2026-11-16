@@ -201,19 +201,31 @@ pub async fn apply_items(lcu: &Lcu, b: &Build, summoner_id: i64) -> Result<Strin
         let t = if skill_order.is_empty() { "Iniciais".into() } else { format!("Iniciais | Skills: {skill_order}") };
         blocks.push(block(t, &starters));
     }
-    let boots = ids(&d["boots"]["ids"]);
+    // botas: a mais usada + alternativas que aparecem em pelo menos 5% das partidas
+    let mut boots = ids(&d["boots"]["ids"]);
+    for alt in d["boots_alts"].as_array().into_iter().flatten() {
+        if alt["pick_rate"].as_f64().unwrap_or(0.0) >= 0.05 {
+            boots.extend(ids(&alt["ids"]).into_iter().filter(|i| !boots.contains(i)).collect::<Vec<_>>());
+        }
+    }
     if !boots.is_empty() {
         let t = if first_skills.is_empty() { "Botas".into() } else { format!("Botas | Início: {first_skills}") };
         blocks.push(block(t, &boots));
     }
+    let win = |c: &Value| match (c["win"].as_f64(), c["play"].as_f64()) {
+        (Some(w), Some(p)) if p > 0.0 => format!(" | Win {:.1}%", w / p * 100.0),
+        _ => String::new(),
+    };
     let core = ids(&d["core_items"]["ids"]);
     if !core.is_empty() {
-        let c = &d["core_items"];
-        let wr = match (c["win"].as_f64(), c["play"].as_f64()) {
-            (Some(w), Some(p)) if p > 0.0 => format!(" | Win {:.1}%", w / p * 100.0),
-            _ => String::new(),
-        };
-        blocks.push(block(format!("Core{wr}"), &core));
+        blocks.push(block(format!("Core{}", win(&d["core_items"])), &core));
+    }
+    // outras combinações de core (só vêm no guia de matchup)
+    for (n, alt) in d["core_alts"].as_array().into_iter().flatten().enumerate() {
+        let items = ids(&alt["ids"]);
+        if !items.is_empty() {
+            blocks.push(block(format!("Core alternativo {}{}", n + 2, win(alt)), &items));
+        }
     }
     for (key, name) in [("fourth_items", "4º item"), ("fifth_items", "5º item"), ("sixth_items", "6º item")] {
         let opts: Vec<i64> = d[key].as_array().into_iter().flatten().take(4).flat_map(|o| ids(&o["ids"])).collect();
@@ -221,9 +233,29 @@ pub async fn apply_items(lcu: &Lcu, b: &Build, summoner_id: i64) -> Result<Strin
             blocks.push(block(format!("{name} (opções)"), &opts));
         }
     }
+    // situacionais: itens mais comprados no fim da partida que não estão no core
+    let mut late: Vec<i64> = Vec::new();
+    for o in d["last_items"].as_array().into_iter().flatten() {
+        for i in ids(&o["ids"]) {
+            if !core.contains(&i) && !boots.contains(&i) && !late.contains(&i) {
+                late.push(i);
+            }
+        }
+    }
+    late.truncate(10);
+    if !late.is_empty() {
+        blocks.push(block("Situacionais".into(), &late));
+    }
+    // poção, sentinela de controle (não existe no ARAM) e elixires
+    let mut consumables = vec![2003];
+    if b.game_mode != "aram" {
+        consumables.push(2055);
+    }
+    consumables.extend([2138, 2139, 2140]);
     if blocks.is_empty() {
         return Ok("sem dados de item".into());
     }
+    blocks.push(block("Consumíveis".into(), &consumables));
 
     let path = format!("/lol-item-sets/v1/item-sets/{summoner_id}/sets");
     let current = lcu.get(&path).await?;
