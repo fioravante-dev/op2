@@ -71,10 +71,13 @@ você escolhe um campeão; até lá ele só espera.
 - ✅ **Runas**: cria uma página "OP2 Campeão Rota" e deixa ativa. Apaga páginas de runas e sets de itens que o
   OP.GG ou o Blitz deixaram (começam com "OP.GG" ou "Blitz"); suas páginas próprias não são tocadas
 - ✅ **Feitiços**: aplica os mais usados, **mantendo o Flash na tecla que você já usa** (D ou F)
-- ✅ **Itens**: set na loja com iniciais, botas, core e opções de 4º/5º/6º item, com a ordem de skills no título
+- ✅ **Itens**: set na loja com iniciais, botas (e alternativas), core, cores alternativos do matchup, opções de
+  4º/5º/6º item, situacionais e consumíveis, com a ordem de skills no título. Também apaga os arquivos de
+  itens que o OP.GG/Blitz deixaram na pasta do LoL (aparecem para todos os campeões)
 - ✅ **Cartão na seleção de campeão**: antes de você escolher, mostra os **counters do inimigo da sua rota**
   (clique para marcar o campeão); depois de escolher, mostra **você vs inimigo**: quem tem vantagem na lane,
-  4 páginas de runas para o matchup (clique para trocar) e uma dica contra ele. No ARAM: Caos, mostra as
+  4 páginas de runas para o matchup (clique para trocar) e uma dica contra ele. Etiquetas com os inimigos
+  deixam você escolher à mão quem é o da sua rota. No ARAM: Caos, mostra as
   melhorias mais escolhidas. Some sozinho quando a partida começa
 - ✅ **Build do matchup**: com o inimigo da rota conhecido (escolha alternada), runas, feitiços e itens são os daquele confronto
 - ✅ **Detecta rota e modo**: ranked solo/flex, normal, ARAM, ARAM: Caos, URF
