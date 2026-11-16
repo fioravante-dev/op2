@@ -1,5 +1,5 @@
 // Espera o cliente do LoL, escuta a seleção de campeão e aplica a build.
-use crate::apply::{apply_items, apply_runes, apply_spells, remove_our_item_sets};
+use crate::apply::{apply_items, apply_runes, apply_spells, remove_other_app_files, remove_our_item_sets};
 use crate::card;
 use crate::lcu::{get_credentials, Lcu};
 use crate::opgg::{matchup_build, Build, Champ, Counter, OpGg};
@@ -25,14 +25,34 @@ pub enum Cmd {
     Hover(i64),
     /// Troca para outra página de runas do matchup
     Runes(usize),
+    /// Escolhe à mão qual inimigo é o da sua rota
+    Opponent(i64),
 }
 
 /// O que já foi feito nesta seleção de campeão (evita repetir chamadas ao OP.gg).
 #[derive(Default)]
 struct State {
     applied: Option<(i64, Option<i64>)>,
-    counters_for: Option<i64>,
+    /// counters já buscados (inimigo, lista)
+    counters: Option<(i64, Vec<Counter>)>,
     matchup: Option<Matchup>,
+    /// inimigo escolhido à mão no cartão (None = automático)
+    opponent_override: Option<i64>,
+    /// etiquetas "contra quem?" atuais e o último cartão mostrado
+    chips: Vec<card::Chip>,
+    view: Option<card::View>,
+}
+
+/// Mostra o cartão com as etiquetas de inimigos atuais e guarda a visão.
+async fn show_card(ctx: &Ctx, mut v: card::View) {
+    if !ctx.card_on() {
+        return;
+    }
+    let mut st = ctx.state.lock().await;
+    v.chips_title = "Contra quem você joga? (clique para trocar)".into();
+    v.chips = st.chips.clone();
+    st.view = Some(v.clone());
+    card::show(v);
 }
 
 struct Matchup {
@@ -40,6 +60,7 @@ struct Matchup {
     champ: Champ,
     opponent: Champ,
     position: String,
+    selected: usize,
 }
 
 #[derive(Clone)]
@@ -160,7 +181,7 @@ async fn apply_general(ctx: &Ctx, champion_id: i64, mode: &Mode, position: Optio
     match apply_all(ctx, champion_id, &mode.opgg, position, true).await {
         Ok(b) if ctx.card_on() => {
             let augments = if mode.mayhem { ctx.opgg.aram_augments(&b.champ).await.unwrap_or_default() } else { Vec::new() };
-            card::show(general_view(&b, &augments, waiting_opponent));
+            show_card(ctx, general_view(&b, &augments, waiting_opponent)).await;
         }
         Ok(_) => {}
         Err(e) => log(&format!("Erro: {e}")),
@@ -173,10 +194,9 @@ async fn apply_matchup(ctx: &Ctx, champion_id: i64, opponent: &Champ, position: 
     let mu = ctx.opgg.matchup(&champ, opponent, position).await?;
     let build = matchup_build(&mu, champ.clone(), position, 0);
     apply_build(ctx, &build, true, &format!(" vs {}", opponent.name)).await?;
-    if ctx.card_on() {
-        card::show(matchup_view(&mu, &champ, opponent, position, 0));
-    }
-    ctx.state.lock().await.matchup = Some(Matchup { data: mu, champ, opponent: opponent.clone(), position: position.into() });
+    show_card(ctx, matchup_view(&mu, &champ, opponent, position, 0)).await;
+    ctx.state.lock().await.matchup =
+        Some(Matchup { data: mu, champ, opponent: opponent.clone(), position: position.into(), selected: 0 });
     Ok(())
 }
 
@@ -204,6 +224,7 @@ fn counters_view(enemy: &Champ, position: &str, list: &[Counter]) -> card::View 
                 .collect(),
         )],
         link: Some(format!("https://op.gg/lol/champions/{}/counters/{position}", url_key(enemy))),
+        ..Default::default()
     }
 }
 
@@ -268,6 +289,7 @@ fn matchup_view(mu: &Value, champ: &Champ, opponent: &Champ, position: &str, sel
             url_key(champ),
             url_key(opponent)
         )),
+        ..Default::default()
     }
 }
 
@@ -301,7 +323,7 @@ fn general_view(b: &Build, augments: &[(String, f64)], waiting_opponent: bool) -
     } else {
         format!("https://op.gg/lol/champions/{key}/build/{}", b.position)
     };
-    card::View { title: format!("{} · {}", b.champ.name, b.label()), subtitle, sections, link: Some(link) }
+    card::View { title: format!("{} · {}", b.champ.name, b.label()), subtitle, sections, link: Some(link), ..Default::default() }
 }
 
 /// O que importa da seleção de campeão.
@@ -355,28 +377,73 @@ async fn handle(ctx: Ctx, snap: Snap) {
         return;
     };
     let lane = mode.opgg != "aram";
-    let opponent = match (&snap.position, lane) {
-        (Some(p), true) => ctx.opgg.lane_opponent(&snap.enemies, p).await,
+    let chosen = ctx.state.lock().await.opponent_override.filter(|id| snap.enemies.contains(id));
+    let opponent = match (chosen, &snap.position, lane) {
+        (_, _, false) => None,
+        (Some(id), _, _) => ctx.opgg.champion(id).await.ok(),
+        (None, Some(p), _) => ctx.opgg.lane_opponent(&snap.enemies, p).await,
+        _ => None,
+    };
+    // sem rota informada (ex: personalizada), usa a rota principal do inimigo escolhido
+    let position = match (&snap.position, &opponent) {
+        (Some(p), _) => Some(p.clone()),
+        (None, Some(o)) => ctx.opgg.main_position(o).await.ok(),
         _ => None,
     };
 
+    // etiquetas com os inimigos já escolhidos, para você dizer quem é o da sua rota
+    if lane && ctx.card_on() {
+        let mut chips = Vec::new();
+        for &id in &snap.enemies {
+            if let Ok(c) = ctx.opgg.champion(id).await {
+                chips.push(card::Chip {
+                    selected: opponent.as_ref().is_some_and(|o| o.id == id),
+                    text: c.name,
+                    action: card::Action::Opponent(id),
+                });
+            }
+        }
+        let mut st = ctx.state.lock().await;
+        st.chips = chips;
+        // atualiza o cartão já aberto com as etiquetas novas
+        if let Some(v) = st.view.clone() {
+            drop(st);
+            show_card(&ctx, v).await;
+        }
+    }
+
     if !snap.locked {
         // antes de confirmar: counters contra o inimigo da rota
-        let (Some(enemy), Some(pos)) = (opponent, snap.position.as_deref()) else { return };
         if !ctx.card_on() {
             return;
         }
-        {
-            let mut st = ctx.state.lock().await;
-            if st.counters_for == Some(enemy.id) {
-                return;
+        let (Some(enemy), Some(pos)) = (opponent, position.as_deref()) else {
+            if !snap.enemies.is_empty() && lane {
+                let v = card::View {
+                    title: "Quem é o inimigo da sua rota?".into(),
+                    subtitle: "Ainda não deu para saber. Clique no campeão que você vai enfrentar.".into(),
+                    ..Default::default()
+                };
+                show_card(&ctx, v).await;
             }
-            st.counters_for = Some(enemy.id);
-        }
-        match ctx.opgg.counters(&enemy, pos).await {
-            Ok(list) if !list.is_empty() => card::show(counters_view(&enemy, pos, &list)),
-            Ok(_) => {}
-            Err(e) => log(&format!("Counters indisponíveis: {e}")),
+            return;
+        };
+        let cached = ctx.state.lock().await.counters.clone().filter(|(id, _)| *id == enemy.id);
+        let list = match cached {
+            Some((_, l)) => l,
+            None => match ctx.opgg.counters(&enemy, pos).await {
+                Ok(l) => {
+                    ctx.state.lock().await.counters = Some((enemy.id, l.clone()));
+                    l
+                }
+                Err(e) => {
+                    log(&format!("Counters indisponíveis: {e}"));
+                    return;
+                }
+            },
+        };
+        if !list.is_empty() {
+            show_card(&ctx, counters_view(&enemy, pos, &list)).await;
         }
         return;
     }
@@ -390,7 +457,7 @@ async fn handle(ctx: Ctx, snap: Snap) {
         st.applied = Some(key);
         st.matchup = None;
     }
-    if let (Some(opp), Some(pos)) = (&opponent, &snap.position) {
+    if let (Some(opp), Some(pos)) = (&opponent, &position) {
         match apply_matchup(&ctx, snap.champ, opp, pos).await {
             Ok(()) => return,
             Err(e) => log(&format!("  Matchup vs {} indisponível ({e}); usando a build geral", opp.name)),
@@ -509,6 +576,17 @@ async fn session(ctx: Ctx, cmds: &mut UnboundedReceiver<Cmd>) -> Result<()> {
                     let ctx = ctx.clone();
                     tokio::spawn(async move { hover(&ctx, id).await });
                 }
+                Cmd::Opponent(id) => {
+                    // clicar no mesmo inimigo de novo volta para o automático
+                    {
+                        let mut st = ctx.state.lock().await;
+                        st.opponent_override = if st.opponent_override == Some(id) { None } else { Some(id) };
+                    }
+                    tracker.last_key = None;
+                    if let Ok(s) = ctx.lcu.get("/lol-champ-select/v1/session").await {
+                        tracker.on_session(&s, &ctx);
+                    }
+                }
                 Cmd::Runes(i) => {
                     let ctx = ctx.clone();
                     tokio::spawn(async move { switch_runes(&ctx, i).await });
@@ -539,14 +617,17 @@ async fn hover(ctx: &Ctx, champion_id: i64) {
 
 /// Clique numa página de runas do cartão.
 async fn switch_runes(ctx: &Ctx, idx: usize) {
-    let st = ctx.state.lock().await;
-    let Some(m) = &st.matchup else { return };
+    let mut st = ctx.state.lock().await;
+    let Some(m) = st.matchup.as_mut() else { return };
+    m.selected = idx;
     let build = matchup_build(&m.data, m.champ.clone(), &m.position, idx);
     match apply_runes(&ctx.lcu, &build).await {
         Ok(r) => log(&format!("  Runas (opção {}): {r}", idx + 1)),
         Err(e) => log(&format!("  Runas (opção {}): ERRO {e}", idx + 1)),
     }
-    card::show(matchup_view(&m.data, &m.champ, &m.opponent, &m.position, idx));
+    let v = matchup_view(&m.data, &m.champ, &m.opponent, &m.position, idx);
+    drop(st);
+    show_card(ctx, v).await;
 }
 
 /// "Reaplicar build agora" do menu: força a aplicação para o campeão atual.
@@ -603,6 +684,10 @@ pub async fn run(cfg: Arc<Mutex<Config>>, notify: Notify, mut cmds: UnboundedRec
                     };
                     log(&format!("Conectado ao cliente (porta {}).", ctx.lcu.port()));
                     let patch = check_patch(&ctx).await;
+                    let n = remove_other_app_files(&ctx.lcu).await;
+                    if n > 0 {
+                        log(&format!("{n} arquivo(s) de itens do OP.GG/Blitz removido(s) da pasta do LoL"));
+                    }
                     ctx.send(UiEvent::Connected(Some(patch.unwrap_or_default())));
                     if let Err(e) = session(ctx.clone(), &mut cmds).await {
                         log(&format!("Conexão encerrada: {e}"));
@@ -643,6 +728,7 @@ pub async fn test_mode(champion: String, position: Option<String>, opponent: Opt
     let opgg = Arc::new(OpGg::new());
     let champ = opgg.find_champion(&champion).await?;
     let ctx = test_ctx(Lcu::new(creds)?, opgg.clone());
+    println!("arquivos do OP.GG/Blitz removidos: {}", remove_other_app_files(&ctx.lcu).await);
     if let Some(opp) = opponent {
         let opp = opgg.find_champion(&opp).await?;
         let pos = position.unwrap_or_else(|| "mid".into());
@@ -652,7 +738,18 @@ pub async fn test_mode(champion: String, position: Option<String>, opponent: Opt
             apply_build(&ctx, &build, false, &format!(" vs {}", opp.name)).await?;
         }
         let counters = opgg.counters(&opp, &pos).await?;
-        let views = vec![counters_view(&opp, &pos, &counters), matchup_view(&mu, &champ, &opp, &pos, 0)];
+        let mut views = vec![counters_view(&opp, &pos, &counters), matchup_view(&mu, &champ, &opp, &pos, 0)];
+        // etiquetas de exemplo, como numa seleção com mais inimigos escolhidos
+        let mut chips = vec![card::Chip { text: opp.name.clone(), selected: true, action: card::Action::Opponent(opp.id) }];
+        for name in ["Briar", "Karma", "Mordekaiser", "Jinx"] {
+            if let Ok(c) = opgg.find_champion(name).await {
+                chips.push(card::Chip { text: c.name, selected: false, action: card::Action::Opponent(c.id) });
+            }
+        }
+        for v in &mut views {
+            v.chips_title = "Contra quem você joga? (clique para trocar)".into();
+            v.chips = chips.clone();
+        }
         views.iter().for_each(print_view);
         return Ok(views);
     }

@@ -130,6 +130,42 @@ fn block(title: String, item_ids: &[i64]) -> Value {
     })
 }
 
+/// O app do OP.GG (e o Blitz) também gravam sets como arquivos em
+/// `<LoL>\Config\Global\Recommended` e `<LoL>\Config\Champions\*\Recommended`.
+/// Os "Global" aparecem para todos os campeões. Apaga os que são deles.
+pub async fn remove_other_app_files(lcu: &Lcu) -> usize {
+    let dir = lcu
+        .get("/data-store/v1/install-dir")
+        .await
+        .ok()
+        .and_then(|v| v.as_str().map(String::from))
+        .unwrap_or_else(|| r"C:\Riot Games\League of Legends".into());
+    let config = std::path::Path::new(&dir).join("Config");
+    let mut folders = vec![config.join("Global").join("Recommended")];
+    if let Ok(champs) = std::fs::read_dir(config.join("Champions")) {
+        folders.extend(champs.flatten().map(|c| c.path().join("Recommended")));
+    }
+    let mut removed = 0;
+    for folder in folders {
+        let Ok(files) = std::fs::read_dir(&folder) else { continue };
+        for f in files.flatten() {
+            let path = f.path();
+            let name = f.file_name().to_string_lossy().to_lowercase();
+            let by_name = name.contains("opgg") || name.contains("blitz");
+            let by_title = || {
+                std::fs::read_to_string(&path)
+                    .ok()
+                    .and_then(|t| serde_json::from_str::<Value>(t.trim_start_matches('\u{feff}')).ok())
+                    .is_some_and(|j| j["title"].as_str().is_some_and(from_other_app))
+            };
+            if name.ends_with(".json") && (by_name || by_title()) && std::fs::remove_file(&path).is_ok() {
+                removed += 1;
+            }
+        }
+    }
+    removed
+}
+
 /// Remove todos os sets de itens criados pelo OP2 (usado quando sai patch novo,
 /// para não sobrar build velha de campeão que você não jogou desde então).
 pub async fn remove_our_item_sets(lcu: &Lcu, summoner_id: i64) -> Result<usize> {

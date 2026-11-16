@@ -17,6 +17,16 @@ pub enum Action {
     Hover(i64),
     /// Troca para a página de runas de índice N
     Runes(usize),
+    /// Escolhe qual inimigo é o da sua rota
+    Opponent(i64),
+}
+
+/// Etiqueta clicável numa linha (ex: campeões inimigos)
+#[derive(Clone)]
+pub struct Chip {
+    pub text: String,
+    pub selected: bool,
+    pub action: Action,
 }
 
 #[derive(Clone, Default)]
@@ -36,6 +46,9 @@ pub struct View {
     pub subtitle: String,
     pub sections: Vec<(String, Vec<Row>)>,
     pub link: Option<String>,
+    /// Etiquetas logo abaixo do título (ex: "Contra quem?")
+    pub chips_title: String,
+    pub chips: Vec<Chip>,
 }
 
 #[derive(Clone)]
@@ -65,6 +78,7 @@ const HOVER_BG: u32 = rgb(0x1e, 0x27, 0x38);
 const TEXT: u32 = rgb(0xe8, 0xec, 0xf2);
 const MUTED: u32 = rgb(0x8a, 0x93, 0xa3);
 const ACCENT: u32 = rgb(0x2b, 0xc4, 0x8a);
+const CHIP_BG: u32 = rgb(0x22, 0x2b, 0x3b);
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
@@ -218,6 +232,35 @@ unsafe fn layout(hdc: HDC, v: &View, w: i32, s: f32, paint: bool, hover: Option<
     if !v.subtitle.is_empty() {
         let r = RECT { left: pad, top: y, right: w - pad, bottom: y };
         y += text(hdc, fonts.small, ACCENT, &v.subtitle, r, DT_WORDBREAK | DT_NOPREFIX, paint);
+    }
+
+    if !v.chips.is_empty() {
+        y += px(12, s);
+        let r = RECT { left: pad, top: y, right: w - pad, bottom: y + px(16, s) };
+        text(hdc, fonts.heading, MUTED, &v.chips_title.to_uppercase(), r, single, paint);
+        y += px(20, s);
+        let (gap, ch) = (px(6, s), px(24, s));
+        let mut x = pad;
+        SelectObject(hdc, fonts.small as HGDIOBJ);
+        for chip in &v.chips {
+            let w16: Vec<u16> = chip.text.encode_utf16().collect();
+            let mut size: SIZE = std::mem::zeroed();
+            GetTextExtentPoint32W(hdc, w16.as_ptr(), w16.len() as i32, &mut size);
+            let cw = size.cx + px(20, s);
+            if x + cw > w - pad && x > pad {
+                x = pad;
+                y += ch + gap;
+            }
+            let r = RECT { left: x, top: y, right: x + cw, bottom: y + ch };
+            if paint {
+                let bg = if chip.selected { ACCENT } else if hovered(hits) { HOVER_BG } else { CHIP_BG };
+                fill(hdc, &r, bg, ch);
+                text(hdc, fonts.small, if chip.selected { BG } else { TEXT }, &chip.text, r, single | DT_CENTER, true);
+            }
+            hits.push((r, Hit::Act(chip.action.clone())));
+            x += cw + gap;
+        }
+        y += ch;
     }
 
     for (heading, rows) in &v.sections {

@@ -108,6 +108,7 @@ fn main() {
             let _ = tx.send(match a {
                 card::Action::Hover(id) => Cmd::Hover(id),
                 card::Action::Runes(i) => Cmd::Runes(i),
+                card::Action::Opponent(id) => Cmd::Opponent(id),
             });
         });
     }

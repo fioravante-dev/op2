@@ -172,7 +172,7 @@ impl OpGg {
 
     /// Rota principal do campeão (quando o cliente não informa, ex: normal blind;
     /// e para descobrir quem é o inimigo da sua rota). Fica em cache.
-    async fn main_position(&self, champ: &Champ) -> Result<String> {
+    pub async fn main_position(&self, champ: &Champ) -> Result<String> {
         if let Some(p) = self.positions.lock().await.get(&champ.id) {
             return Ok(p.clone());
         }
@@ -282,6 +282,7 @@ impl OpGg {
     }
 }
 
+#[derive(Clone)]
 pub struct Counter {
     pub id: i64,
     pub name: String,
